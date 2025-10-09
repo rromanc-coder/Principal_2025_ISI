@@ -1,60 +1,91 @@
-import os, json
+import os, json, asyncio, time
 from typing import List, Dict, Any
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, JSONResponse
+import httpx
 
-app = FastAPI(title="principal-isi Dashboard", version="1.0.0")
+app = FastAPI(title="principal-isi", version="1.1.0")
 
+# -------- helpers --------
 def load_teams() -> List[Dict[str, Any]]:
     raw = os.getenv("TEAMS_JSON", "[]")
     try:
         data = json.loads(raw)
         if not isinstance(data, list):
-            raise ValueError("TEAMS_JSON debe ser una lista")
+            raise ValueError("TEAMS_JSON debe ser lista")
         return data
     except Exception as e:
-        # No “rompemos” el servicio si hay error, pero lo reportamos
         print(f"[WARN] TEAMS_JSON inválido: {e}")
         return []
 
 def get_host() -> str:
-    # Host “público” si lo defines (WireGuard o FQDN)
     return os.getenv("WG_HOST", "localhost")
 
-@app.get("/", response_class=HTMLResponse)
-def root():
-    host = get_host()
-    teams = load_teams()
-    rows = "\n".join(
-        f'<tr><td>{t.get("name")}</td>'
-        f'<td>{t.get("repo","")}</td>'
-        f'<td><a href="http://{host}:{t.get("port")}/" target="_blank">http://{host}:{t.get("port")}/</a></td></tr>'
-        for t in teams
-    )
-    html = f"""
-    <html>
-      <head>
-        <title>Principal ISI</title>
-        <style>body{{font-family:sans-serif}} table{{border-collapse:collapse}} td,th{{border:1px solid #ccc;padding:6px}}</style>
-      </head>
-      <body>
-        <h1>✅ Principal_2025_ISI</h1>
-        <p>WG_HOST: <b>{host}</b></p>
-        <h2>Equipos</h2>
-        <table>
-          <thead><tr><th>Equipo</th><th>Repo</th><th>URL</th></tr></thead>
-          <tbody>{rows}</tbody>
-        </table>
-        <p>API: <a href="/teams" target="_blank">/teams</a> · <a href="/health" target="_blank">/health</a> · <a href="/docs" target="_blank">/docs</a></p>
-      </body>
-    </html>
-    """
-    return html
+async def _check_one(client: httpx.AsyncClient, team: Dict[str, Any]) -> Dict[str, Any]:
+    name = team.get("name")
+    port = int(team.get("port", 0))
+    internal_url = f"http://{name}:8000/health"  # dentro de la red de Docker
+    external_url = f"http://{get_host()}:{port}/" if port else None
 
+    started = time.monotonic()
+    status = "down"
+    code = None
+    err = None
+    try:
+        r = await client.get(internal_url, timeout=1.5)
+        code = r.status_code
+        if r.is_success:
+            status = "up"
+    except Exception as ex:
+        err = str(ex)
+    latency_ms = int((time.monotonic() - started) * 1000)
+    return {
+        "name": name,
+        "port": port,
+        "repo": team.get("repo"),
+        "internal_url": internal_url,
+        "external_url": external_url,
+        "status": status,
+        "http": code,
+        "latency_ms": latency_ms,
+        "error": err,
+    }
+
+async def check_all() -> List[Dict[str, Any]]:
+    teams = load_teams()
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(*[_check_one(client, t) for t in teams])
+    return results
+
+# -------- rutas API --------
 @app.get("/teams")
 def teams():
     return {"host": get_host(), "teams": load_teams()}
 
+@app.get("/status")
+async def status():
+    res = await check_all()
+    return JSONResponse({"host": get_host(), "results": res})
+
 @app.get("/health")
 def health():
-    return {"app": "principal-isi", "status": "ok"}
+    return {"status": "ok"}
+
+# -------- página --------
+@app.get("/", response_class=HTMLResponse)
+def root():
+    host = get_host()
+    html = f"""
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<title>Principal ISI</title>
+<style>
+  body {{ font-family: system-ui, sans-serif; margin: 20px; }}
+  table {{ border-collapse: collapse; width: 100%; max-width: 960px; }}
+  th, td {{ border: 1px solid #ddd; padding: 8px; }}
+  th {{ background: #f3f3f3; text-align: left; }}
+  .pill {{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }}
+  .up {{ background:#e6ffed; color:#046c4e; border:1px solid #b7f5c8; }}
+  .down {{ background:#ffe6e6; color:#8a1f1f; border:1px solid #ffc2c2; }}
