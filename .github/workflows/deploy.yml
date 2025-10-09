@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [ self-hosted, linux, principal-isi ]
+    runs-on: [ self-hosted, linux, runner-principal-isi ]
     timeout-minutes: 20
 
     steps:
