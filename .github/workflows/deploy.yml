@@ -77,3 +77,7 @@ jobs:
         if: ${{ failure() }}
         shell: bash
         run: |
+          set -euo pipefail
+          cd /srv/pln
+          docker compose ps principal-isi || true
+          docker compose logs --tail=200 principal-isi || true
