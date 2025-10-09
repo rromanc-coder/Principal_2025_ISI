@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rsync -av --delete app/ /srv/pln/principal-isi/app/
+          rsync -av --delete ./app/ /srv/pln/principal-isi/
           
 
       - name: Build + Up (solo principal-isi)
