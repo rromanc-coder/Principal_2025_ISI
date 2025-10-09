@@ -90,7 +90,7 @@ def root():
         "<head>",
         "<meta charset='utf-8'/>",
         "<meta name='viewport' content='width=device-width, initial-scale=1'/>",
-        "<title>Principal ISI</title>",
+        "<title>Principal ISI - Dashboard</title>",
         "<style>",
         ":root{--bg:#ffffff;--fg:#111827;--muted:#6b7280;--card:#f9fafb;--border:#e5e7eb;",
         "--good-bg:#e6ffed;--good-fg:#046c4e;--good-br:#b7f5c8;",
