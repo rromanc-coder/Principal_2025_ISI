@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
-app = FastAPI(title="principal-isi", version="1.0.0")
+app = FastAPI(title="principal-isi Dashboard", version="1.0.0")
 
 def load_teams() -> List[Dict[str, Any]]:
     raw = os.getenv("TEAMS_JSON", "[]")
