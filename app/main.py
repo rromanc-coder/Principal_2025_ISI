@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 
-app = FastAPI(title="principal-isi", version="1.2.0")
+app = FastAPI(title="principal-isi", version="1.2.1")
 
 # -------- helpers --------
 def load_teams() -> List[Dict[str, Any]]:
@@ -30,7 +30,7 @@ def get_logos() -> Dict[str, str]:
 async def _check_one(client: httpx.AsyncClient, team: Dict[str, Any]) -> Dict[str, Any]:
     name = team.get("name")
     port = int(team.get("port", 0))
-    internal_url = f"http://{name}:8000/health"  # dentro de la red de Docker
+    internal_url = f"http://{name}:8000/health"  # red interna Docker
     external_url = f"http://{get_host()}:{port}/" if port else None
 
     started = time.monotonic()
@@ -63,7 +63,7 @@ async def check_all() -> List[Dict[str, Any]]:
         results = await asyncio.gather(*[_check_one(client, t) for t in teams])
     return results
 
-# -------- rutas API --------
+# -------- API --------
 @app.get("/teams")
 def teams():
     return {"host": get_host(), "teams": load_teams()}
@@ -77,47 +77,115 @@ async def status():
 def health():
     return {"status": "ok"}
 
-# -------- página --------
+# -------- Página --------
 @app.get("/", response_class=HTMLResponse)
 def root():
     host = get_host()
     logos = get_logos()
 
-    html = """
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Principal ISI</title>
-<style>
-  :root {
-    --bg: #ffffff;
-    --fg: #111827;
-    --muted: #6b7280;
-    --card: #f9fafb;
-    --border: #e5e7eb;
-    --good-bg: #e6ffed; --good-fg: #046c4e; --good-br: #b7f5c8;
-    --bad-bg: #ffe6e6; --bad-fg: #8a1f1f; --bad-br: #ffc2c2;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0b0f14;
-      --fg: #e5e7eb;
-      --muted: #9ca3af;
-      --card: #111827;
-      --border: #1f2937;
-      --good-bg: #0a2f1e; --good-fg: #a7f3d0; --good-br: #14532d;
-      --bad-bg: #3b0a0a; --bad-fg: #fecaca; --bad-br: #7f1d1d;
-    }
-    img { filter: brightness(0.95) contrast(1.05); }
-  }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial; }
-  .container { max-width: 1050px; margin: 0 auto; padding: 24px; }
-  .brand { display: grid; gap: 12px; align-items: center; justify-items: center; grid-template-columns: 120px 1fr 120px; }
-  .brand .logo { max-height: 80px; width: auto; object-fit: contain; }
-  .titles { text-align: center; }
-  .titles h1 { margin: 0; font-size: 1.75rem; }
-  .titles p { margin: 4px 0 0; color: var(--muted); }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 24px; }
-  table { width
+    # Construimos HTML sin comillas triples ni f-strings
+    html_parts = [
+        "<!DOCTYPE html>",
+        "<html lang='es'>",
+        "<head>",
+        "<meta charset='utf-8'/>",
+        "<meta name='viewport' content='width=device-width, initial-scale=1'/>",
+        "<title>Principal ISI</title>",
+        "<style>",
+        ":root{--bg:#ffffff;--fg:#111827;--muted:#6b7280;--card:#f9fafb;--border:#e5e7eb;",
+        "--good-bg:#e6ffed;--good-fg:#046c4e;--good-br:#b7f5c8;",
+        "--bad-bg:#ffe6e6;--bad-fg:#8a1f1f;--bad-br:#ffc2c2;}",
+        "@media (prefers-color-scheme: dark){:root{--bg:#0b0f14;--fg:#e5e7eb;--muted:#9ca3af;--card:#111827;--border:#1f2937;",
+        "--good-bg:#0a2f1e;--good-fg:#a7f3d0;--good-br:#14532d;--bad-bg:#3b0a0a;--bad-fg:#fecaca;--bad-br:#7f1d1d;}img{filter:brightness(0.95) contrast(1.05);}}",
+        "body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,\"Helvetica Neue\",Arial;}",
+        ".container{max-width:1050px;margin:0 auto;padding:24px;}",
+        ".brand{display:grid;gap:12px;align-items:center;justify-items:center;grid-template-columns:120px 1fr 120px;}",
+        ".brand .logo{max-height:80px;width:auto;object-fit:contain;}",
+        ".titles{text-align:center;}",
+        ".titles h1{margin:0;font-size:1.75rem;}",
+        ".titles p{margin:4px 0 0;color:var(--muted);}",
+        ".card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:24px;}",
+        "table{width:100%;border-collapse:collapse;}",
+        "th,td{border-bottom:1px solid var(--border);padding:10px 8px;text-align:left;}",
+        "thead th{background:transparent;font-weight:600;}",
+        "tbody tr:nth-child(odd){background:rgba(0,0,0,0.02);}",
+        "a{color:inherit;text-decoration:underline;text-underline-offset:2px;}",
+        ".pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;vertical-align:middle;}",
+        ".up{background:var(--good-bg);color:var(--good-fg);border:1px solid var(--good-br);}",
+        ".down{background:var(--bad-bg);color:var(--bad-fg);border:1px solid var(--bad-br);}",
+        ".muted{color:var(--muted);font-size:0.9rem;}",
+        ".grid{display:grid;gap:16px;grid-template-columns:1fr;}",
+        "@media (min-width:900px){.grid{grid-template-columns:1fr;}}",
+        "</style>",
+        "</head>",
+        "<body>",
+        "<div class='container'>",
+        "<header class='brand'>",
+        "<div>__LOGO_UAEMEX__</div>",
+        "<div class='titles'>",
+        "<h1>Principal_2025_ISI</h1>",
+        "<p>WG_HOST: <b>__HOST__</b></p>",
+        "</div>",
+        "<div>__LOGO_ING__</div>",
+        "</header>",
+        "<div class='grid'>",
+        "<section class='card'>",
+        "<h2 style='margin:0 0 12px 0;'>Equipos (estado en vivo)</h2>",
+        "<div class='muted' style='margin-bottom:8px;'>Se actualiza cada 5s</div>",
+        "<div style='overflow-x:auto;'>",
+        "<table id='tbl'>",
+        "<thead><tr><th>Equipo</th><th>Repo</th><th>URL</th><th>Estado</th><th>Latencia</th></tr></thead>",
+        "<tbody id='tbody'><tr><td colspan='5' class='muted'>Cargando...</td></tr></tbody>",
+        "</table>",
+        "</div>",
+        "</section>",
+        "</div>",
+        "</div>",
+        "<script>",
+        "function imgTag(url, alt){ if(!url) return ''; const safeAlt = alt || 'logo'; return '<img class=\"logo\" src=\"'+url+'\" alt=\"'+safeAlt+'\" loading=\"lazy\"/>'; }",
+        "async function fetchStatus(){",
+        " try{",
+        "  const r = await fetch('/status');",
+        "  if(!r.ok) throw new Error('status '+r.status);",
+        "  const data = await r.json();",
+        "  const body = document.getElementById('tbody');",
+        "  body.innerHTML='';",
+        "  for(const row of data.results){",
+        "   const tr = document.createElement('tr');",
+        "   const tdName=document.createElement('td'); tdName.textContent=row.name||'-'; tr.appendChild(tdName);",
+        "   const tdRepo=document.createElement('td');",
+        "   if(row.repo){ const a=document.createElement('a'); a.href=row.repo; a.textContent=row.repo; a.target='_blank'; tdRepo.appendChild(a); }",
+        "   else{ tdRepo.textContent='-'; }",
+        "   tr.appendChild(tdRepo);",
+        "   const tdUrl=document.createElement('td');",
+        "   if(row.external_url){ const a=document.createElement('a'); a.href=row.external_url; a.textContent=row.external_url; a.target='_blank'; tdUrl.appendChild(a); }",
+        "   else{ tdUrl.textContent='-'; }",
+        "   tr.appendChild(tdUrl);",
+        "   const tdStatus=document.createElement('td');",
+        "   const pill=document.createElement('span'); pill.className='pill '+(row.status==='up'?'up':'down');",
+        "   pill.textContent=(row.status||'unknown').toUpperCase()+(row.http?' ('+row.http+')':'');",
+        "   tdStatus.appendChild(pill);",
+        "   if(row.error){ const div=document.createElement('div'); div.className='muted'; div.textContent=row.error; tdStatus.appendChild(div); }",
+        "   tr.appendChild(tdStatus);",
+        "   const tdLat=document.createElement('td'); tdLat.textContent=(row.latency_ms!=null?row.latency_ms+' ms':'-'); tr.appendChild(tdLat);",
+        "   body.appendChild(tr);",
+        "  }",
+        " }catch(e){ console.error(e); }",
+        "}",
+        "document.addEventListener('DOMContentLoaded',()=>{",
+        " const uaemexDiv=document.querySelectorAll('.brand > div')[0];",
+        " const ingDiv=document.querySelectorAll('.brand > div')[2];",
+        " uaemexDiv.innerHTML=imgTag('__LOGO_URL_UAEMEX__','Escudo UAEMex');",
+        " ingDiv.innerHTML=imgTag('__LOGO_URL_ING__','Escudo Facultad/Ingeniería');",
+        "});",
+        "fetchStatus(); setInterval(fetchStatus,5000);",
+        "</script>",
+        "</body>",
+        "</html>",
+    ]
+    html = "\n".join(html_parts)
+    # Sustituciones seguras
+    html = html.replace("__HOST__", host)
+    html = html.replace("__LOGO_URL_UAEMEX__", logos.get("uaemex", ""))
+    html = html.replace("__LOGO_URL_ING__", logos.get("ing", ""))
+    return html
