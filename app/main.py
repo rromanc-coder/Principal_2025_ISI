@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 
-app = FastAPI(title="principal-isi", version="1.1.1")
+app = FastAPI(title="principal-isi", version="1.2.0")
 
 # -------- helpers --------
 def load_teams() -> List[Dict[str, Any]]:
@@ -20,6 +20,12 @@ def load_teams() -> List[Dict[str, Any]]:
 
 def get_host() -> str:
     return os.getenv("WG_HOST", "localhost")
+
+def get_logos() -> Dict[str, str]:
+    return {
+        "uaemex": os.getenv("LOGO_UAEMEX_URL", "").strip(),
+        "ing": os.getenv("LOGO_ING_URL", "").strip(),
+    }
 
 async def _check_one(client: httpx.AsyncClient, team: Dict[str, Any]) -> Dict[str, Any]:
     name = team.get("name")
@@ -75,107 +81,43 @@ def health():
 @app.get("/", response_class=HTMLResponse)
 def root():
     host = get_host()
+    logos = get_logos()
+
     html = """
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Principal ISI</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 20px; }
-  table { border-collapse: collapse; width: 100%; max-width: 960px; }
-  th, td { border: 1px solid #ddd; padding: 8px; }
-  th { background: #f3f3f3; text-align: left; }
-  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
-  .up { background:#e6ffed; color:#046c4e; border:1px solid #b7f5c8; }
-  .down { background:#ffe6e6; color:#8a1f1f; border:1px solid #ffc2c2; }
-  .muted { color:#666; font-size:12px; }
-</style>
-</head>
-<body>
-  <h1>✅ Principal_2025_ISI</h1>
-  <p>WG_HOST: <b>__HOST__</b></p>
-
-  <h2>Equipos (estado en vivo)</h2>
-  <table id="tbl">
-    <thead>
-      <tr>
-        <th>Equipo</th>
-        <th>Repo</th>
-        <th>URL</th>
-        <th>Estado</th>
-        <th>Latencia</th>
-      </tr>
-    </thead>
-    <tbody id="tbody">
-      <tr><td colspan="5" class="muted">Cargando...</td></tr>
-    </tbody>
-  </table>
-  <p class="muted">Se actualiza cada 5s</p>
-
-<script>
-async function fetchStatus() {
-  try {
-    const r = await fetch('/status');
-    if (!r.ok) throw new Error('status ' + r.status);
-    const data = await r.json();
-    const body = document.getElementById('tbody');
-    body.innerHTML = '';
-    for (const row of data.results) {
-      const tr = document.createElement('tr');
-
-      const tdName = document.createElement('td');
-      tdName.textContent = row.name || '-';
-      tr.appendChild(tdName);
-
-      const tdRepo = document.createElement('td');
-      if (row.repo) {
-        const a = document.createElement('a');
-        a.href = row.repo; a.textContent = row.repo; a.target = '_blank';
-        tdRepo.appendChild(a);
-      } else {
-        tdRepo.textContent = '-';
-      }
-      tr.appendChild(tdRepo);
-
-      const tdUrl = document.createElement('td');
-      if (row.external_url) {
-        const a = document.createElement('a');
-        a.href = row.external_url; a.textContent = row.external_url; a.target = '_blank';
-        tdUrl.appendChild(a);
-      } else {
-        tdUrl.textContent = '-';
-      }
-      tr.appendChild(tdUrl);
-
-      const tdStatus = document.createElement('td');
-      const pill = document.createElement('span');
-      pill.className = 'pill ' + (row.status === 'up' ? 'up' : 'down');
-      pill.textContent = (row.status || 'unknown').toUpperCase() + (row.http ? ' ('+row.http+')' : '');
-      tdStatus.appendChild(pill);
-      if (row.error) {
-        const div = document.createElement('div');
-        div.className = 'muted';
-        div.textContent = row.error;
-        tdStatus.appendChild(div);
-      }
-      tr.appendChild(tdStatus);
-
-      const tdLat = document.createElement('td');
-      tdLat.textContent = (row.latency_ms != null ? row.latency_ms + ' ms' : '-');
-      tr.appendChild(tdLat);
-
-      body.appendChild(tr);
-    }
-  } catch (e) {
-    console.error(e);
+  :root {
+    --bg: #ffffff;
+    --fg: #111827;
+    --muted: #6b7280;
+    --card: #f9fafb;
+    --border: #e5e7eb;
+    --good-bg: #e6ffed; --good-fg: #046c4e; --good-br: #b7f5c8;
+    --bad-bg: #ffe6e6; --bad-fg: #8a1f1f; --bad-br: #ffc2c2;
   }
-}
-
-fetchStatus();
-setInterval(fetchStatus, 5000);
-</script>
-</body>
-</html>
-"""
-    return html.replace("__HOST__", host)
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0f14;
+      --fg: #e5e7eb;
+      --muted: #9ca3af;
+      --card: #111827;
+      --border: #1f2937;
+      --good-bg: #0a2f1e; --good-fg: #a7f3d0; --good-br: #14532d;
+      --bad-bg: #3b0a0a; --bad-fg: #fecaca; --bad-br: #7f1d1d;
+    }
+    img { filter: brightness(0.95) contrast(1.05); }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial; }
+  .container { max-width: 1050px; margin: 0 auto; padding: 24px; }
+  .brand { display: grid; gap: 12px; align-items: center; justify-items: center; grid-template-columns: 120px 1fr 120px; }
+  .brand .logo { max-height: 80px; width: auto; object-fit: contain; }
+  .titles { text-align: center; }
+  .titles h1 { margin: 0; font-size: 1.75rem; }
+  .titles p { margin: 4px 0 0; color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 24px; }
+  table { width
