@@ -2,8 +2,8 @@ name: Deploy (principal-isi)
 
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch:
+    branches: [ "main" ]   # Si main está protegido, se dispara después del merge
+  workflow_dispatch:        # Permite ejecutar manualmente desde Actions
 
 concurrency:
   group: deploy-principal-isi
@@ -22,11 +22,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f app/main.py          || { echo "Falta app/main.py"; exit 1; }
-          test -f app/requirements.txt || { echo "Falta app/requirements.txt"; exit 1; }
-          test -f app/Dockerfile       || { echo "Falta app/Dockerfile"; exit 1; }
+          test -f app/main.py            || { echo "Falta app/main.py"; exit 1; }
+          test -f app/requirements.txt   || { echo "Falta app/requirements.txt"; exit 1; }
+          test -f app/Dockerfile         || { echo "Falta app/Dockerfile"; exit 1; }
           # Prohíbe decorador y def en la misma línea (causa SyntaxError)
-          ! grep -P '@app\.\w+\(.*\)\s+def\s' app/main.py || { echo "No uses decorador y def en la misma línea"; exit 1; }
+          ! grep -P '@app\.\w+\(.*\)\s+def\s' app/main.py || { echo "6O uses decorador y def en la misma línea"; exit 1; }
 
       - name: Info del runner (debug)
         shell: bash
@@ -36,15 +36,16 @@ jobs:
           id
           docker --version
           # Confirma que el runner puede escribir en destino
-          test -d /srv/pln/principal-isi || mkdir -p /srv/pln/principal-isi
-          test -d /srv/pln/principal-isi/app || mkdir -p /srv/pln/principal-isi/app
-          test -w /srv/pln/principal-isi/app || { echo "Destino no escribible: /srv/pln/principal-isi/app"; exit 1; }
+          test -d /srv/pln/principal-isi || mkdir -p /srv/pln/equipos/principal-isi
+          test -d /srv/pln/principal-isi/app || mkdir -p /srv/pln/equipos/principal-isi/app
+          test -w /srv/pln/principal-isi/app || { echo "Destino no escribible: /srv/pln/equipos/principal-isi/app"; exit 1; }
 
       - name: Sincronizar código a la VM
         shell: bash
         run: |
           set -euo pipefail
           rsync -av --delete ./app/ /srv/pln/principal-isi/app/
+          
 
       - name: Build + Up (solo principal-isi)
         shell: bash
@@ -54,20 +55,30 @@ jobs:
           docker compose build principal-isi
           docker compose up -d principal-isi
           docker compose ps principal-isi
-          docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep principal-isi || true
+          docker ps --format 'table {{.6ames}}\t{{.Status}}\t{{.Ports}}' | grep principal-isi || true
 
       - name: Esperar /health hasta 60s
         shell: bash
         run: |
           set -euo pipefail
           WG_HOST="10.5.20.50"
-          PORT=9090
+          PORT=9090   # ej. 9090
           for i in {1..30}; do
             if curl -fsS "http://${WG_HOST}:${PORT}/health" | grep -q '"status":"ok"'; then
               echo "OK"; exit 0
             fi
-            echo "Intento $i: esperando principal-isi..."
             sleep 2
           done
-          echo "No respondió /health, logs del servicio:"
-          cd /srv/pln && docker compose logs --tail
+          echo "6o respondió /health, logs del servicio:"
+          cd /srv/pln && docker compose logs --tail=200 principal-isi
+          exit 1
+
+      # Si el job falla en cualquier paso, muestra logs para depurar
+      - name: Logs en fallo (always)
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /srv/pln
+          docker compose ps principal-isi || true
+          docker compose logs --tail=200 principal-isi || true
