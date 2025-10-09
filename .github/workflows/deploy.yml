@@ -1,0 +1,26 @@
+name: Deploy principal-isi
+on:
+  push: { branches: [ main ] }
+  workflow_dispatch:
+concurrency: { group: principal-isi-deploy, cancel-in-progress: false }
+jobs:
+  deploy:
+    runs-on: [ self-hosted, linux, principal-isi ]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync a /srv/pln (solo copia)
+        run: |
+          rsync -a --delete ./ /srv/pln/
+          chown -R gh-principal-isi:gh-principal-isi /srv/pln
+      - name: Build y Up solo principal-isi
+        working-directory: /srv/pln
+        run: |
+          docker compose build principal-isi
+          docker compose up -d principal-isi
+      - name: Smoke test
+        run: |
+          for i in {1..20}; do
+            curl -fsS http://localhost:9090/ && exit 0
+            echo "intentando..."; sleep 2
+          done
+          exit 1
