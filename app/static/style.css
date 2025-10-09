@@ -1,7 +1,7 @@
-body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+body { font-family: system-ui, sans-serif; margin: 24px; }
 table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid #ddd; padding: 8px; }
-th { background: #f4f4f4; }
+th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+th { background: #f2f2f2; }
 .ok { background: #eaffea; }
 .down { background: #ffecec; }
 a { color: #0366d6; text-decoration: none; }
