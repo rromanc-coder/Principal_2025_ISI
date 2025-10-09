@@ -2,11 +2,11 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Salas - Dashboard</title>
+  <title>Principal ISI</title>
   <link rel="stylesheet" href="/static/style.css"/>
 </head>
 <body>
-  <h1>Salas - Dashboard</h1>
+  <h1>Principal ISI</h1>
   <p>Actualizado: {{ ts }}</p>
   <table>
     <thead>
@@ -24,9 +24,9 @@
       <tr class="{{ 'ok' if r.status=='OK' else 'down' }}">
         <td>{{ r.name }}</td>
         <td>{{ r.status }}</td>
-        <td>{{ r.build if r.build is not none else '-' }}</td>
-        <td><a href="{{ r.api }}" target="_blank">{{ r.api }}</a></td>
-        <td><a href="{{ r.docs }}" target="_blank">/docs</a></td>
+        <td>{{ r.build if r.build else '-' }}</td>
+        <td><a href="{{ r.api }}" target="_blank">API</a></td>
+        <td><a href="{{ r.docs }}" target="_blank">Docs</a></td>
         <td><a href="{{ r.repo }}" target="_blank">Repo</a></td>
       </tr>
     {% endfor %}
