@@ -7,18 +7,16 @@ from fastapi.staticfiles import StaticFiles
 
 WG_HOST = os.getenv("WG_HOST", "10.5.20.50")
 
-# Lista de equipos por env: TEAMS_JSON con objetos {name, port, repo}
-# Si no viene, hace fallback a 6 equipos estándar
 DEFAULT_TEAMS = [
-    {"name": "equipo1", "port": 9001, "repo": "https://github.com/<USER>/equipo1"},
-    {"name": "equipo2", "port": 9002, "repo": "https://github.com/<USER>/equipo2"},
-    {"name": "equipo3", "port": 9003, "repo": "https://github.com/<USER>/equipo3"},
-    {"name": "equipo4", "port": 9004, "repo": "https://github.com/<USER>/equipo4"},
-    {"name": "equipo5", "port": 9005, "repo": "https://github.com/<USER>/equipo5"},
-    {"name": "equipo6", "port": 9006, "repo": "https://github.com/<USER>/equipo6"},
+    {"name": "equipo1", "port": 9001, "repo": "https://github.com/rromanc-coder/equipo1"},
+    {"name": "equipo2", "port": 9002, "repo": "https://github.com/rromanc-coder/equipo2"},
+    {"name": "equipo3", "port": 9003, "repo": "https://github.com/rromanc-coder/equipo3"},
+    {"name": "equipo4", "port": 9004, "repo": "https://github.com/rromanc-coder/equipo4"},
+    {"name": "equipo5", "port": 9005, "repo": "https://github.com/rromanc-coder/equipo5"},
+    {"name": "equipo6", "port": 9006, "repo": "https://github.com/rromanc-coder/equipo6"},
 ]
 
-def load_teams() -> List[Dict[str, Any]]:
+def load_teams():
     raw = os.getenv("TEAMS_JSON", "").strip()
     if not raw:
         return DEFAULT_TEAMS
@@ -29,7 +27,7 @@ def load_teams() -> List[Dict[str, Any]]:
 
 TEAMS = load_teams()
 
-app = FastAPI(title="Salas - Dashboard", version="1.0.0")
+app = FastAPI(title="Principal ISI - Dashboard", version="1.0.0")
 
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -44,7 +42,6 @@ async def fetch_health(client: httpx.AsyncClient, team: Dict[str, Any]) -> Dict[
         "docs": f"http://{WG_HOST}:{team['port']}/docs",
         "status": "DOWN",
         "build": None,
-        "error": None,
     }
     try:
         r = await client.get(url, timeout=1.5)
@@ -52,13 +49,11 @@ async def fetch_health(client: httpx.AsyncClient, team: Dict[str, Any]) -> Dict[
             js = r.json()
             data["status"] = "OK"
             data["build"] = js.get("build")
-        else:
-            data["error"] = f"HTTP {r.status_code}"
-    except Exception as e:
-        data["error"] = str(e)
+    except Exception:
+        pass
     return data
 
-async def gather_status() -> List[Dict[str, Any]]:
+async def gather_status():
     async with httpx.AsyncClient() as client:
         return await asyncio.gather(*(fetch_health(client, t) for t in TEAMS))
 
@@ -67,11 +62,6 @@ async def home(request: Request):
     rows = await gather_status()
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return templates.TemplateResponse("index.html", {"request": request, "rows": rows, "ts": ts})
-
-@app.get("/api/status")
-async def api_status():
-    rows = await gather_status()
-    return {"updated_at": datetime.datetime.now().isoformat(), "teams": rows}
 
 @app.get("/health")
 def health():
