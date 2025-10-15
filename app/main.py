@@ -2,26 +2,50 @@ import os, json, asyncio, time
 from typing import List, Dict, Any
 from collections import deque, defaultdict
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 import httpx
+from fastapi import FastAPI, Depends, Request, Form, HTTPException, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
 
-app = FastAPI(title="principal-isi", version="1.4.1")
+# ---- módulos locales (opción B, modular) ----
+from db import Base, engine, get_db
+from models import User
+from schemas import UserCreate, LoginIn, UserOut
+from auth import hash_password, verify_password, create_token, get_current_user
+from middleware import activity_middleware
 
-# Montar /static SOLO si existe la carpeta (evita fallos si aún no subes imágenes)
+# =========================================================
+# App base + estáticos + templates + DB + middleware
+# =========================================================
+app = FastAPI(title="principal-isi", version="1.6.0")
+
+# /static (si existe la carpeta)
 if os.path.isdir("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 else:
     print("[INFO] Carpeta 'static' no encontrada; /static deshabilitado")
 
-# -------- Configuración de histórico (para uptime/diagnóstico) --------
-# Mantén las últimas N muestras (si refrescas cada 5s, 60 ≈ 5 minutos)
-HISTORY_WINDOW = 60
-_history = defaultdict(lambda: deque(maxlen=HISTORY_WINDOW))  # name -> deque[{"ts":..., "up":0/1, "lat":ms, "err":str|None}]
+# Templates
+templates = Jinja2Templates(directory="templates") if os.path.isdir("templates") else None
+
+# Crear tablas si no existen
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"[WARN] No se pudieron crear tablas: {e}")
+
+# Middleware de bitácora
+activity_middleware(app)
+
+# =========================================================
+# Helpers del dashboard
+# =========================================================
+HISTORY_WINDOW = 60  # si refrescas cada 5s, ~5 minutos
+_history = defaultdict(lambda: deque(maxlen=HISTORY_WINDOW))  # name -> deque[{ts, up, lat, err}]
 _last_error = {}  # name -> str
 
-# -------- helpers --------
 def load_teams() -> List[Dict[str, Any]]:
     raw = os.getenv("TEAMS_JSON", "[]")
     try:
@@ -43,20 +67,17 @@ def get_logos() -> Dict[str, str]:
     }
 
 def infer_tag(name: str) -> str:
-    """Inferir la materia/etiqueta si no viene en TEAMS_JSON."""
     if not name:
         return "-"
     n = name.lower()
-    if n.startswith("equipo"):
-        return "PLN"
-    if n.startswith("itm"):
-        return "ITM"
+    if n.startswith("equipo"): return "PLN"
+    if n.startswith("itm"):    return "ITM"
     return "General"
 
 async def _check_one(client: httpx.AsyncClient, team: Dict[str, Any]) -> Dict[str, Any]:
     name = team.get("name")
     port = int(team.get("port", 0))
-    internal_url = f"http://{name}:8000/health"  # red interna Docker
+    internal_url = f"http://{name}:8000/health"    # red interna Docker
     external_url = f"http://{get_host()}:{port}/" if port else None
     tag = (team.get("tag") or team.get("course") or team.get("materia") or "").strip() or infer_tag(name)
 
@@ -104,18 +125,18 @@ def update_history(results: List[Dict[str, Any]]) -> None:
 
 def uptime_pct(name: str) -> float:
     buf = _history.get(name)
-    if not buf:
-        return 0.0
+    if not buf: return 0.0
     total = len(buf)
-    if total == 0:
-        return 0.0
+    if total == 0: return 0.0
     ups = sum(x["up"] for x in buf)
     return round(100.0 * ups / total, 1)
 
 def last_error(name: str) -> str:
     return _last_error.get(name, "")
 
-# -------- API --------
+# =========================================================
+# API del dashboard
+# =========================================================
 @app.get("/teams")
 def teams():
     return {"host": get_host(), "teams": load_teams()}
@@ -198,7 +219,9 @@ async def diag():
 def health():
     return {"status": "ok"}
 
-# -------- Página --------
+# =========================================================
+# Página del dashboard (HTML)
+# =========================================================
 @app.get("/", response_class=HTMLResponse)
 def root():
     host = get_host()
@@ -211,13 +234,13 @@ def root():
         "<meta charset='utf-8'/>",
         "<meta name='viewport' content='width=device-width, initial-scale=1'/>",
         "<title>Principal ISI - Dashboard</title>",
+        "<link rel='stylesheet' href='/static/styles.css'>",
         "<style>",
         ":root{--bg:#ffffff;--fg:#111827;--muted:#6b7280;--card:#f9fafb;--border:#e5e7eb;",
         "--good-bg:#e6ffed;--good-fg:#046c4e;--good-br:#b7f5c8;",
         "--bad-bg:#ffe6e6;--bad-fg:#8a1f1f;--bad-br:#ffc2c2;}",
         "@media (prefers-color-scheme: dark){:root{--bg:#0b0f14;--fg:#e5e7eb;--muted:#9ca3af;--card:#111827;--border:#1f2937;",
         "--good-bg:#0a2f1e;--good-fg:#a7f3d0;--good-br:#14532d;--bad-bg:#3b0a0a;--bad-fg:#fecaca;--bad-br:#7f1d1d;}img{filter:brightness(0.95) contrast(1.05);}}",
-        "body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,\"Helvetica Neue\",Arial;}",
         ".container{max-width:1150px;margin:0 auto;padding:24px;}",
         ".brand{display:grid;gap:12px;align-items:center;justify-items:center;grid-template-columns:120px 1fr 120px;}",
         ".brand .logo{max-height:80px;width:auto;object-fit:contain;}",
@@ -225,11 +248,6 @@ def root():
         ".titles h1{margin:0;font-size:1.75rem;}",
         ".titles p{margin:4px 0 0;color:var(--muted);}",
         ".card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:24px;}",
-        "table{width:100%;border-collapse:collapse;}",
-        "th,td{border-bottom:1px solid var(--border);padding:10px 8px;text-align:left;}",
-        "thead th{background:transparent;font-weight:600;}",
-        "tbody tr:nth-child(odd){background:rgba(0,0,0,0.02);}",
-        "a{color:inherit;text-decoration:underline;text-underline-offset:2px;}",
         ".pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;vertical-align:middle;}",
         ".up{background:var(--good-bg);color:var(--good-fg);border:1px solid var(--good-br);}",
         ".down{background:var(--bad-bg);color:var(--bad-fg);border:1px solid var(--bad-br);}",
@@ -245,7 +263,7 @@ def root():
         "<div>__LOGO_UAEMEX__</div>",
         "<div class='titles'>",
         "<h1>Principal_2025_ISI</h1>",
-        "<p>WG_HOST: <b>__HOST__</b></p>",
+        "<p>WG_HOST: <b>__HOST__</b> · <a href='/app'>App (login)</a></p>",
         "</div>",
         "<div>__LOGO_ING__</div>",
         "</header>",
@@ -255,7 +273,6 @@ def root():
         "<h2 style='margin:0 0 12px 0;'>Servicios (estado en vivo)</h2>",
         "<div class='muted' style='margin-bottom:8px;'>Se actualiza cada 5s</div>",
 
-        # Controles
         "<div style='display:flex;gap:12px;align-items:center;margin:8px 0;'>",
         "  <input id='q' placeholder='Buscar por equipo/asignatura/repositorio' ",
         "         style='padding:8px;border:1px solid var(--border);border-radius:8px;flex:1;max-width:360px;'>",
@@ -374,8 +391,96 @@ def root():
         "</html>",
     ]
     html = "\n".join(html_parts)
-    # Sustituciones seguras
     html = html.replace("__HOST__", host)
     html = html.replace("__LOGO_URL_UAEMEX__", logos.get("uaemex", ""))
     html = html.replace("__LOGO_URL_ING__", logos.get("ing", ""))
     return html
+
+# =========================================================
+# Páginas y API de autenticación (no rompe el dashboard)
+# =========================================================
+@app.get("/app", response_class=HTMLResponse)
+def app_home(request: Request, user: User = Depends(get_current_user)):
+    if templates and os.path.isfile(os.path.join("templates", "app.html")):
+        return templates.TemplateResponse("app.html", {"request": request, "user": user})
+    return HTMLResponse(f"<h1>Hola, {user.full_name or user.email}</h1><p>App protegida OK</p>")
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    if templates and os.path.isfile(os.path.join("templates", "login.html")):
+        return templates.TemplateResponse("login.html", {"request": request})
+    return HTMLResponse(
+        "<form method='post' action='/auth/login'>"
+        "Email <input type='email' name='email' required><br>"
+        "Password <input type='password' name='password' required><br>"
+        "<button>Entrar</button></form>"
+    )
+
+@app.get("/register", response_class=HTMLResponse)
+def register_page(request: Request):
+    if templates and os.path.isfile(os.path.join("templates", "register.html")):
+        return templates.TemplateResponse("register.html", {"request": request})
+    return HTMLResponse(
+        "<form method='post' action='/auth/register'>"
+        "Email <input type='email' name='email' required><br>"
+        "Nombre <input type='text' name='full_name'><br>"
+        "Password <input type='password' name='password' required><br>"
+        "<button>Crear cuenta</button></form>"
+    )
+
+@app.post("/api/register")
+def api_register(data: UserCreate, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == data.email).first():
+        raise HTTPException(status_code=400, detail="Email ya existe")
+    user = User(email=data.email, full_name=data.full_name, password=hash_password(data.password))
+    db.add(user); db.commit(); db.refresh(user)
+    return UserOut.model_validate(user)
+
+@app.post("/api/login")
+def api_login(data: LoginIn, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user or not verify_password(data.password, user.password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
+    token = create_token(user_id=user.id, email=user.email)
+    resp = JSONResponse({"message": "ok"})
+    resp.set_cookie("access_token", token, httponly=True, samesite="lax", secure=False, max_age=60*60*12)
+    return resp
+
+@app.post("/api/logout")
+def api_logout():
+    resp = JSONResponse({"message": "bye"})
+    resp.delete_cookie("access_token")
+    return resp
+
+@app.get("/api/me")
+def api_me(user: User = Depends(get_current_user)):
+    return UserOut.model_validate(user)
+
+# Formularios HTML (si usas páginas simples)
+@app.post("/auth/register", response_class=HTMLResponse)
+def register_form(
+    request: Request, email: str = Form(...), full_name: str = Form(""),
+    password: str = Form(...), db: Session = Depends(get_db)
+):
+    if db.query(User).filter(User.email == email).first():
+        if templates and os.path.isfile(os.path.join("templates", "register.html")):
+            return templates.TemplateResponse("register.html", {"request": request, "error": "Email ya existe"})
+        return HTMLResponse("<p>Email ya existe</p>", status_code=400)
+    user = User(email=email, full_name=full_name, password=hash_password(password))
+    db.add(user); db.commit()
+    return RedirectResponse(url="/login", status_code=302)
+
+@app.post("/auth/login", response_class=HTMLResponse)
+def login_form(
+    request: Request, email: str = Form(...), password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.email == email).first()
+    if not user or not verify_password(password, user.password):
+        if templates and os.path.isfile(os.path.join("templates", "login.html")):
+            return templates.TemplateResponse("login.html", {"request": request, "error": "Credenciales inválidas"})
+        return HTMLResponse("<p>Credenciales inválidas</p>", status_code=401)
+    token = create_token(user_id=user.id, email=user.email)
+    resp = RedirectResponse(url="/app", status_code=302)
+    resp.set_cookie("access_token", token, httponly=True, samesite="lax", secure=False, max_age=60*60*12)
+    return resp
