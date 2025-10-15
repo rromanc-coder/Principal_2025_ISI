@@ -4,13 +4,16 @@ from collections import deque, defaultdict
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 import httpx
 
-from fastapi.staticfiles import StaticFiles
+app = FastAPI(title="principal-isi", version="1.4.1")
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-app = FastAPI(title="principal-isi", version="1.4.0")
+# Montar /static SOLO si existe la carpeta (evita fallos si aún no subes imágenes)
+if os.path.isdir("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+else:
+    print("[INFO] Carpeta 'static' no encontrada; /static deshabilitado")
 
 # -------- Configuración de histórico (para uptime/diagnóstico) --------
 # Mantén las últimas N muestras (si refrescas cada 5s, 60 ≈ 5 minutos)
