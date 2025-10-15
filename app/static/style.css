@@ -1,8 +1,109 @@
-body { font-family: system-ui, sans-serif; margin: 24px; }
-table { border-collapse: collapse; width: 100%; }
+/* ============================
+   BASE + RESET SUAVE
+   ============================ */
+:root{
+  --bg:#ffffff; --fg:#111827; --muted:#6b7280; --card:#f9fafb; --border:#e5e7eb;
+  --good-bg:#e6ffed; --good-fg:#046c4e; --good-br:#b7f5c8;
+  --bad-bg:#ffe6e6;  --bad-fg:#8a1f1f;  --bad-br:#ffc2c2;
+}
+
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0b0f14; --fg:#e5e7eb; --muted:#9ca3af; --card:#111827; --border:#1f2937;
+    --good-bg:#0a2f1e; --good-fg:#a7f3d0; --good-br:#14532d;
+    --bad-bg:#3b0a0a;  --bad-fg:#fecaca;  --bad-br:#7f1d1d;
+  }
+  img { filter: brightness(0.97) contrast(1.03); }
+}
+
+html { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: inherit; }
+
+/* Tu base: tipografía y margen */
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
+  margin: 24px;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.5;
+}
+
+/* Contenedor y tarjetas opcionales (dashboard / páginas) */
+.container{ max-width: 1150px; margin: 0 auto; padding: 0 16px; }
+.card{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+
+/* Encabezado superior (para páginas HTML nuevas) */
+.topbar{
+  display:flex; justify-content:space-between; align-items:center;
+  padding:10px 16px; background:#0b0f14; color:#e5e7eb; border-radius:10px; margin-bottom:16px;
+}
+.topbar a, .topbar button{ color:#e5e7eb; margin-left:10px; text-decoration:none; background:none; border:none; cursor:pointer; }
+
+/* Marca y logos del dashboard */
+.brand{ display:grid; gap:12px; align-items:center; justify-items:center; grid-template-columns:120px 1fr 120px; }
+.brand .logo{ max-height:80px; width:auto; object-fit:contain; }
+.titles{text-align:center;}
+.titles h1{ margin:0; font-size:1.75rem; }
+.titles p{ margin:4px 0 0; color:var(--muted); }
+
+/* ============================
+   TABLAS (mezcla de tus reglas + mejoras)
+   ============================ */
+table { border-collapse: collapse; width: 100%; background: transparent; }
 th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
 th { background: #f2f2f2; }
-.ok { background: #eaffea; }
-.down { background: #ffecec; }
+
+/* Ajuste en modo oscuro de la tabla */
+@media (prefers-color-scheme: dark){
+  th { background: #121821; }
+  th, td { border-color: var(--border); }
+}
+
+/* Estilo alternado suave (si no usas bordes fuertes) */
+tbody tr:nth-child(odd){ background: rgba(0,0,0,0.02); }
+@media (prefers-color-scheme: dark){
+  tbody tr:nth-child(odd){ background: rgba(255,255,255,0.02); }
+}
+
+/* Filas con estado (compatibilidad con tu .ok/.down, pero mejor usar tr.ok / tr.down) */
+tr.ok    { background: #eaffea; }
+tr.down  { background: #ffecec; }
+.ok      { background: #eaffea; }   /* compatibilidad */
+.down    { background: #ffecec; }   /* compatibilidad */
+
+/* ============================
+   ENLACES
+   ============================ */
 a { color: #0366d6; text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+/* ============================
+   UTILIDADES
+   ============================ */
+.muted { color: var(--muted); font-size: 0.92rem; }
+button{ cursor: pointer; }
+.error { color: #b91c1c; background: #fee2e2; padding:8px; border-radius:6px; }
+
+/* ============================
+   PÍLDORAS DE ESTADO (DASHBOARD)
+   Estas reglas van al final para que GANEN sobre .down genérico.
+   ============================ */
+.pill{
+  display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; vertical-align:middle;
+  border: 1px solid var(--border);
+}
+.pill.up{
+  background: var(--good-bg); color: var(--good-fg); border-color: var(--good-br);
+}
+.pill.down{
+  background: var(--bad-bg); color: var(--bad-fg); border-color: var(--bad-br);
+}
+
+/* ============================
+   RESPONSIVE BÁSICO
+   ============================ */
+@media (max-width: 700px){
+  .brand{ grid-template-columns: 1fr; gap: 8px; }
+  .container{ padding: 0 8px; }
+  th, td{ font-size: 0.95rem; }
+}
