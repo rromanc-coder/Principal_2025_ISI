@@ -1,0 +1,11 @@
+{% extends "layout.html" %}
+{% block title %}Mi App{% endblock %}
+{% block content %}
+<h1>Mi aplicación</h1>
+<p>Bienvenido, {{ user.full_name or user.email }}.</p>
+<ul>
+  <li>API: <code>GET /api/me</code></li>
+  <li>DB: tablas <code>users</code> y <code>activities</code></li>
+  <li>Bitácora: cada request queda registrada</li>
+</ul>
+{% endblock %}
