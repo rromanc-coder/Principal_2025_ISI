@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+{% block title %}Registro{% endblock %}
+{% block content %}
+<h2>Registro</h2>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<form method="post" action="/auth/register">
+  <label>Email <input type="email" name="email" required></label><br>
+  <label>Nombre <input type="text" name="full_name"></label><br>
+  <label>Password <input type="password" name="password" required></label><br>
+  <button type="submit">Crear cuenta</button>
+</form>
+<p>¿Ya tienes cuenta? <a href="/login">Entrar</a></p>
+{% endblock %}
