@@ -1,18 +1,18 @@
 import os, json, asyncio, time
 from typing import List, Dict, Any
+from collections import deque, defaultdict
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 
-from collections import deque, defaultdict
-import time
+app = FastAPI(title="principal-isi", version="1.4.0")
 
-# Mantener 60 muestras (~5 min si refrescas cada 5s; cambia el tamaño según prefieras)
+# -------- Configuración de histórico (para uptime/diagnóstico) --------
+# Mantén las últimas N muestras (si refrescas cada 5s, 60 ≈ 5 minutos)
 HISTORY_WINDOW = 60
 _history = defaultdict(lambda: deque(maxlen=HISTORY_WINDOW))  # name -> deque[{"ts":..., "up":0/1, "lat":ms, "err":str|None}]
 _last_error = {}  # name -> str
-
-app = FastAPI(title="principal-isi", version="1.3.0")
 
 # -------- helpers --------
 def load_teams() -> List[Dict[str, Any]]:
@@ -83,6 +83,7 @@ async def check_all() -> List[Dict[str, Any]]:
     async with httpx.AsyncClient() as client:
         results = await asyncio.gather(*[_check_one(client, t) for t in teams])
     return results
+
 def update_history(results: List[Dict[str, Any]]) -> None:
     now = time.time()
     for r in results:
@@ -115,9 +116,7 @@ def teams():
 @app.get("/status")
 async def status():
     res = await check_all()
-    # actualizar histórico
     update_history(res)
-    # enriquecer respuesta con uptime/error
     for r in res:
         n = r.get("name") or ""
         r["uptime_pct"] = uptime_pct(n)
@@ -125,15 +124,17 @@ async def status():
         if le and not r.get("error"):
             r["error"] = le
     return JSONResponse({"host": get_host(), "results": res, "ts": int(time.time())})
-@app.get("/health")
-def health():
-    return {"status": "ok"}
 
-# -------- Página --------
+@app.get("/history")
+def history():
+    out = {}
+    for name, buf in _history.items():
+        out[name] = list(buf)
+    return out
+
 @app.get("/metrics", response_class=HTMLResponse)
 def metrics():
     lines = []
-    # Help/Type
     lines.append('# HELP service_up 1 si el servicio está UP, 0 si DOWN')
     lines.append('# TYPE service_up gauge')
     lines.append('# HELP service_latency_ms Latencia de /health en ms (última lectura)')
@@ -141,7 +142,6 @@ def metrics():
     lines.append('# HELP service_uptime_pct Uptime en % dentro de la ventana local')
     lines.append('# TYPE service_uptime_pct gauge')
 
-    # Últimos resultados (si no hay, intenta inferir con history)
     teams = load_teams()
     names = [t.get("name") for t in teams if t.get("name")]
     for name in names:
@@ -158,20 +158,45 @@ def metrics():
         lines.append(f'service_latency_ms{{{labels}}} {lat}')
         lines.append(f'service_uptime_pct{{{labels}}} {upct}')
     return "\n".join(lines) + "\n"
-    
-@app.get("/history")
-def history():
-    out = {}
-    for name, buf in _history.items():
-        out[name] = list(buf)  # pequeño, solo últimas N
+
+@app.get("/diag")
+async def diag():
+    out = {"ok": True, "errors": [], "internal_checks": []}
+    raw = os.getenv("TEAMS_JSON", "[]")
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, list):
+            raise ValueError("TEAMS_JSON no es lista")
+    except Exception as e:
+        out["ok"] = False
+        out["errors"].append(f"TEAMS_JSON inválido: {e}")
+        data = []
+
+    failed = []
+    async with httpx.AsyncClient() as client:
+        for t in data:
+            name = t.get("name")
+            if not name:
+                continue
+            try:
+                r = await client.get(f"http://{name}:8000/health", timeout=0.8)
+                if not r.is_success:
+                    failed.append({ "name": name, "status": r.status_code })
+            except Exception as ex:
+                failed.append({ "name": name, "error": str(ex) })
+    out["internal_checks"] = failed
     return out
-    
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+# -------- Página --------
 @app.get("/", response_class=HTMLResponse)
 def root():
     host = get_host()
     logos = get_logos()
 
-    # Construimos HTML sin comillas triples ni f-strings
     html_parts = [
         "<!DOCTYPE html>",
         "<html lang='es'>",
@@ -204,6 +229,7 @@ def root():
         ".muted{color:var(--muted);font-size:0.9rem;}",
         ".grid{display:grid;gap:16px;grid-template-columns:1fr;}",
         "@media (min-width:900px){.grid{grid-template-columns:1fr;}}",
+        "button{cursor:pointer;}",
         "</style>",
         "</head>",
         "<body>",
@@ -216,10 +242,21 @@ def root():
         "</div>",
         "<div>__LOGO_ING__</div>",
         "</header>",
+
         "<div class='grid'>",
         "<section class='card'>",
         "<h2 style='margin:0 0 12px 0;'>Servicios (estado en vivo)</h2>",
         "<div class='muted' style='margin-bottom:8px;'>Se actualiza cada 5s</div>",
+
+        # Controles
+        "<div style='display:flex;gap:12px;align-items:center;margin:8px 0;'>",
+        "  <input id='q' placeholder='Buscar por equipo/asignatura/repositorio' ",
+        "         style='padding:8px;border:1px solid var(--border);border-radius:8px;flex:1;max-width:360px;'>",
+        "  <button id='sortLat' style='padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);'>Ordenar por Latencia</button>",
+        "  <button id='sortUp'  style='padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);'>Ordenar por Uptime</button>",
+        "  <span id='lastTs' class='muted'></span>",
+        "</div>",
+
         "<div style='overflow-x:auto;'>",
         "<table id='tbl'>",
         "<thead><tr>",
@@ -232,50 +269,98 @@ def root():
         "<th>Uptime (ventana)</th>",
         "<th>Último error</th>",
         "</tr></thead>",
-        "<tbody id='tbody'><tr><td colspan='6' class='muted'>Cargando...</td></tr></tbody>",
+        "<tbody id='tbody'><tr><td colspan='8' class='muted'>Cargando...</td></tr></tbody>",
         "</table>",
         "</div>",
         "</section>",
         "</div>",
-        "</div>",
+
+        "</div>",  # container
+
         "<script>",
         "function imgTag(url, alt){ if(!url) return ''; const safeAlt = alt || 'logo'; return '<img class=\"logo\" src=\"'+url+'\" alt=\"'+safeAlt+'\" loading=\"lazy\"/>'; }",
-        "async function fetchStatus(){",
-        " try{",
-        "  const r = await fetch('/status');",
-        "  if(!r.ok) throw new Error('status '+r.status);",
-        "  const data = await r.json();",
+
+        "let lastData = [];",
+        "let sortMode = null; // 'lat' | 'up' | null",
+
+        "function renderRows(rows){",
         "  const body = document.getElementById('tbody');",
         "  body.innerHTML='';",
-        "  for(const row of data.results){",
-        "   const tr = document.createElement('tr');",
-        "   const tdName=document.createElement('td'); tdName.textContent=row.name||'-'; tr.appendChild(tdName);",
-        "   const tdTag=document.createElement('td'); tdTag.textContent=row.tag||'-'; tr.appendChild(tdTag);",
-        "   const tdRepo=document.createElement('td');",
-        "   if(row.repo){ const a=document.createElement('a'); a.href=row.repo; a.textContent=row.repo; a.target='_blank'; tdRepo.appendChild(a); }",
-        "   else{ tdRepo.textContent='-'; }",
-        "   tr.appendChild(tdRepo);",
-        "   const tdUrl=document.createElement('td');",
-        "   if(row.external_url){ const a=document.createElement('a'); a.href=row.external_url; a.textContent=row.external_url; a.target='_blank'; tdUrl.appendChild(a); }",
-        "   else{ tdUrl.textContent='-'; }",
-        "   tr.appendChild(tdUrl);",
-        "   const tdStatus=document.createElement('td');",
-        "   const pill=document.createElement('span'); pill.className='pill '+(row.status==='up'?'up':'down');",
-        "   pill.textContent=(row.status||'unknown').toUpperCase()+(row.http?' ('+row.http+')':'');",
-        "   tdStatus.appendChild(pill);",
-        "   if(row.error){ const div=document.createElement('div'); div.className='muted'; div.textContent=row.error; tdStatus.appendChild(div); }",
-        "   tr.appendChild(tdStatus);",
-        "   const tdLat=document.createElement('td'); tdLat.textContent=(row.latency_ms!=null?row.latency_ms+' ms':'-'); tr.appendChild(tdLat);",
-        "   body.appendChild(tr);",
+        "  for(const row of rows){",
+        "    const tr = document.createElement('tr');",
+
+        "    const tdName=document.createElement('td'); tdName.textContent=row.name||'-'; tr.appendChild(tdName);",
+        "    const tdTag=document.createElement('td'); tdTag.textContent=row.tag||'-'; tr.appendChild(tdTag);",
+
+        "    const tdRepo=document.createElement('td');",
+        "    if(row.repo){ const a=document.createElement('a'); a.href=row.repo; a.textContent=row.repo; a.target='_blank'; tdRepo.appendChild(a); }",
+        "    else{ tdRepo.textContent='-'; }",
+        "    tr.appendChild(tdRepo);",
+
+        "    const tdUrl=document.createElement('td');",
+        "    if(row.external_url){ const a=document.createElement('a'); a.href=row.external_url; a.textContent=row.external_url; a.target='_blank'; tdUrl.appendChild(a); }",
+        "    else{ tdUrl.textContent='-'; }",
+        "    tr.appendChild(tdUrl);",
+
+        "    const tdStatus=document.createElement('td');",
+        "    const pill=document.createElement('span'); pill.className='pill '+(row.status==='up'?'up':'down');",
+        "    pill.textContent=(row.status||'unknown').toUpperCase()+(row.http?' ('+row.http+')':'');",
+        "    tdStatus.appendChild(pill);",
+        "    tr.appendChild(tdStatus);",
+
+        "    const tdLat=document.createElement('td'); tdLat.textContent=(row.latency_ms!=null?row.latency_ms+' ms':'-'); tr.appendChild(tdLat);",
+
+        "    const tdUptime=document.createElement('td'); tdUptime.textContent=(row.uptime_pct!=null?row.uptime_pct.toFixed(1)+'%':'-'); tr.appendChild(tdUptime);",
+
+        "    const tdErr=document.createElement('td');",
+        "    if(row.error){ const e = String(row.error); tdErr.textContent = (e.length>80? e.slice(0,80)+'…': e); } else { tdErr.textContent='-'; }",
+        "    tr.appendChild(tdErr);",
+
+        "    body.appendChild(tr);",
         "  }",
-        " }catch(e){ console.error(e); }",
         "}",
+
+        "function applyFilters(){",
+        "  const q = (document.getElementById('q').value||'').toLowerCase().trim();",
+        "  let rows = lastData.slice();",
+        "  if(q){",
+        "    rows = rows.filter(r =>",
+        "      (r.name||'').toLowerCase().includes(q) ||",
+        "      (r.tag||'').toLowerCase().includes(q) ||",
+        "      (r.repo||'').toLowerCase().includes(q)",
+        "    );",
+        "  }",
+        "  if(sortMode==='lat'){",
+        "    rows.sort((a,b)=>(a.latency_ms||1e9) - (b.latency_ms||1e9));",
+        "  } else if(sortMode==='up'){",
+        "    rows.sort((a,b)=>(b.uptime_pct||0) - (a.uptime_pct||0));",
+        "  }",
+        "  renderRows(rows);",
+        "}",
+
+        "async function fetchStatus(){",
+        "  try{",
+        "    const r = await fetch('/status');",
+        "    if(!r.ok) throw new Error('status '+r.status);",
+        "    const data = await r.json();",
+        "    lastData = data.results || [];",
+        "    const lastTs = document.getElementById('lastTs');",
+        "    if(data.ts){ const d = new Date(data.ts*1000); lastTs.textContent = 'Actualizado: '+d.toLocaleTimeString(); }",
+        "    applyFilters();",
+        "  }catch(e){ console.error(e); }",
+        "}",
+
         "document.addEventListener('DOMContentLoaded',()=>{",
-        " const uaemexDiv=document.querySelectorAll('.brand > div')[0];",
-        " const ingDiv=document.querySelectorAll('.brand > div')[2];",
-        " uaemexDiv.innerHTML=imgTag('__LOGO_URL_UAEMEX__','Escudo UAEMex');",
-        " ingDiv.innerHTML=imgTag('__LOGO_URL_ING__','Escudo Facultad/Ingeniería');",
+        "  const uaemexDiv=document.querySelectorAll('.brand > div')[0];",
+        "  const ingDiv=document.querySelectorAll('.brand > div')[2];",
+        "  uaemexDiv.innerHTML=imgTag('__LOGO_URL_UAEMEX__','Escudo UAEMex');",
+        "  ingDiv.innerHTML=imgTag('__LOGO_URL_ING__','Escudo Facultad/Ingeniería');",
+
+        "  document.getElementById('q').addEventListener('input', applyFilters);",
+        "  document.getElementById('sortLat').addEventListener('click', ()=>{ sortMode = (sortMode==='lat'? null: 'lat'); applyFilters(); });",
+        "  document.getElementById('sortUp').addEventListener('click',  ()=>{ sortMode = (sortMode==='up' ? null: 'up');  applyFilters(); });",
         "});",
+
         "fetchStatus(); setInterval(fetchStatus,5000);",
         "</script>",
         "</body>",
