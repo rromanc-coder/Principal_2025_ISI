@@ -6,6 +6,10 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 
+from fastapi.staticfiles import StaticFiles
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 app = FastAPI(title="principal-isi", version="1.4.0")
 
 # -------- Configuración de histórico (para uptime/diagnóstico) --------
