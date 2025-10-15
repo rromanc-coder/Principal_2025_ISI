@@ -8,12 +8,19 @@ from models import User
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
 ALGO = "HS256"
-pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Usamos bcrypt_sha256 para admitir contraseñas largas; dejamos bcrypt para compat
+pwd = CryptContext(
+    schemes=["bcrypt_sha256", "bcrypt"],
+    deprecated="auto"
+)
 
 def hash_password(password: str) -> str:
+    # bcrypt_sha256 admite contraseñas largas; será el esquema por defecto
     return pwd.hash(password)
 
 def verify_password(password: str, hashed: str) -> bool:
+    # Verifica contra el esquema usado en el hash almacenado (auto-detecta)
     return pwd.verify(password, hashed)
 
 def create_token(user_id: int, email: str) -> str:
