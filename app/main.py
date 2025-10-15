@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 
-app = FastAPI(title="principal-isi", version="1.2.1")
+app = FastAPI(title="principal-isi", version="1.3.0")
 
 # -------- helpers --------
 def load_teams() -> List[Dict[str, Any]]:
@@ -27,11 +27,23 @@ def get_logos() -> Dict[str, str]:
         "ing": os.getenv("LOGO_ING_URL", "").strip(),
     }
 
+def infer_tag(name: str) -> str:
+    """Inferir la materia/etiqueta si no viene en TEAMS_JSON."""
+    if not name:
+        return "-"
+    n = name.lower()
+    if n.startswith("equipo"):
+        return "PLN"
+    if n.startswith("itm"):
+        return "ITM"
+    return "General"
+
 async def _check_one(client: httpx.AsyncClient, team: Dict[str, Any]) -> Dict[str, Any]:
     name = team.get("name")
     port = int(team.get("port", 0))
     internal_url = f"http://{name}:8000/health"  # red interna Docker
     external_url = f"http://{get_host()}:{port}/" if port else None
+    tag = (team.get("tag") or team.get("course") or team.get("materia") or "").strip() or infer_tag(name)
 
     started = time.monotonic()
     status = "down"
@@ -47,6 +59,7 @@ async def _check_one(client: httpx.AsyncClient, team: Dict[str, Any]) -> Dict[st
     latency_ms = int((time.monotonic() - started) * 1000)
     return {
         "name": name,
+        "tag": tag,
         "port": port,
         "repo": team.get("repo"),
         "internal_url": internal_url,
@@ -98,7 +111,7 @@ def root():
         "@media (prefers-color-scheme: dark){:root{--bg:#0b0f14;--fg:#e5e7eb;--muted:#9ca3af;--card:#111827;--border:#1f2937;",
         "--good-bg:#0a2f1e;--good-fg:#a7f3d0;--good-br:#14532d;--bad-bg:#3b0a0a;--bad-fg:#fecaca;--bad-br:#7f1d1d;}img{filter:brightness(0.95) contrast(1.05);}}",
         "body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,\"Helvetica Neue\",Arial;}",
-        ".container{max-width:1050px;margin:0 auto;padding:24px;}",
+        ".container{max-width:1150px;margin:0 auto;padding:24px;}",
         ".brand{display:grid;gap:12px;align-items:center;justify-items:center;grid-template-columns:120px 1fr 120px;}",
         ".brand .logo{max-height:80px;width:auto;object-fit:contain;}",
         ".titles{text-align:center;}",
@@ -130,12 +143,19 @@ def root():
         "</header>",
         "<div class='grid'>",
         "<section class='card'>",
-        "<h2 style='margin:0 0 12px 0;'>Equipos (estado en vivo)</h2>",
+        "<h2 style='margin:0 0 12px 0;'>Servicios (estado en vivo)</h2>",
         "<div class='muted' style='margin-bottom:8px;'>Se actualiza cada 5s</div>",
         "<div style='overflow-x:auto;'>",
         "<table id='tbl'>",
-        "<thead><tr><th>Equipo</th><th>Repo</th><th>URL</th><th>Estado</th><th>Latencia</th></tr></thead>",
-        "<tbody id='tbody'><tr><td colspan='5' class='muted'>Cargando...</td></tr></tbody>",
+        "<thead><tr>",
+        "<th>Equipo</th>",
+        "<th>Materia</th>",
+        "<th>Repo</th>",
+        "<th>URL</th>",
+        "<th>Estado</th>",
+        "<th>Latencia</th>",
+        "</tr></thead>",
+        "<tbody id='tbody'><tr><td colspan='6' class='muted'>Cargando...</td></tr></tbody>",
         "</table>",
         "</div>",
         "</section>",
@@ -153,6 +173,7 @@ def root():
         "  for(const row of data.results){",
         "   const tr = document.createElement('tr');",
         "   const tdName=document.createElement('td'); tdName.textContent=row.name||'-'; tr.appendChild(tdName);",
+        "   const tdTag=document.createElement('td'); tdTag.textContent=row.tag||'-'; tr.appendChild(tdTag);",
         "   const tdRepo=document.createElement('td');",
         "   if(row.repo){ const a=document.createElement('a'); a.href=row.repo; a.textContent=row.repo; a.target='_blank'; tdRepo.appendChild(a); }",
         "   else{ tdRepo.textContent='-'; }",
