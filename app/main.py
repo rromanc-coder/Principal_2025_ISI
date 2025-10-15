@@ -2,50 +2,35 @@ import os, json, asyncio, time
 from typing import List, Dict, Any
 from collections import deque, defaultdict
 
-import httpx
-from fastapi import FastAPI, Depends, Request, Form, HTTPException, status
+from fastapi import FastAPI, Depends, Response, HTTPException, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+import httpx
 
-# ---- módulos locales (opción B, modular) ----
 from db import Base, engine, get_db
 from models import User
 from schemas import UserCreate, LoginIn, UserOut
 from auth import hash_password, verify_password, create_token, get_current_user
 from middleware import activity_middleware
 
-# =========================================================
-# App base + estáticos + templates + DB + middleware
-# =========================================================
-app = FastAPI(title="principal-isi", version="1.6.0")
+app = FastAPI(title="principal-isi", version="1.5.0")
 
-# /static (si existe la carpeta)
+# Static mount (solo si existe)
 if os.path.isdir("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 else:
     print("[INFO] Carpeta 'static' no encontrada; /static deshabilitado")
 
-# Templates
-templates = Jinja2Templates(directory="templates") if os.path.isdir("templates") else None
-
-# Crear tablas si no existen
-try:
-    Base.metadata.create_all(bind=engine)
-except Exception as e:
-    print(f"[WARN] No se pudieron crear tablas: {e}")
-
-# Middleware de bitácora
+# Middleware de actividad
 activity_middleware(app)
 
-# =========================================================
-# Helpers del dashboard
-# =========================================================
-HISTORY_WINDOW = 60  # si refrescas cada 5s, ~5 minutos
+# -------- Configuración de histórico para dashboard --------
+HISTORY_WINDOW = 60
 _history = defaultdict(lambda: deque(maxlen=HISTORY_WINDOW))  # name -> deque[{ts, up, lat, err}]
 _last_error = {}  # name -> str
 
+# -------- helpers --------
 def load_teams() -> List[Dict[str, Any]]:
     raw = os.getenv("TEAMS_JSON", "[]")
     try:
@@ -77,19 +62,19 @@ def infer_tag(name: str) -> str:
 async def _check_one(client: httpx.AsyncClient, team: Dict[str, Any]) -> Dict[str, Any]:
     name = team.get("name")
     port = int(team.get("port", 0))
-    internal_url = f"http://{name}:8000/health"    # red interna Docker
+    internal_url = f"http://{name}:8000/health"  # red interna Docker
     external_url = f"http://{get_host()}:{port}/" if port else None
     tag = (team.get("tag") or team.get("course") or team.get("materia") or "").strip() or infer_tag(name)
 
     started = time.monotonic()
-    status = "down"
+    status_txt = "down"
     code = None
     err = None
     try:
         r = await client.get(internal_url, timeout=1.5)
         code = r.status_code
         if r.is_success:
-            status = "up"
+            status_txt = "up"
     except Exception as ex:
         err = str(ex)
     latency_ms = int((time.monotonic() - started) * 1000)
@@ -100,7 +85,7 @@ async def _check_one(client: httpx.AsyncClient, team: Dict[str, Any]) -> Dict[st
         "repo": team.get("repo"),
         "internal_url": internal_url,
         "external_url": external_url,
-        "status": status,
+        "status": status_txt,
         "http": code,
         "latency_ms": latency_ms,
         "error": err,
@@ -134,9 +119,15 @@ def uptime_pct(name: str) -> float:
 def last_error(name: str) -> str:
     return _last_error.get(name, "")
 
-# =========================================================
-# API del dashboard
-# =========================================================
+# -------- DB: crear tablas al iniciar (con manejo de fallo limpio) --------
+@app.on_event("startup")
+def _create_tables():
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as ex:
+        print(f"[WARN] No se pudieron crear tablas: {ex}")
+
+# -------- API: dashboard/monitoring --------
 @app.get("/teams")
 def teams():
     return {"host": get_host(), "teams": load_teams()}
@@ -155,9 +146,7 @@ async def status():
 
 @app.get("/history")
 def history():
-    out = {}
-    for name, buf in _history.items():
-        out[name] = list(buf)
+    out = {name: list(buf) for name, buf in _history.items()}
     return out
 
 @app.get("/metrics", response_class=HTMLResponse)
@@ -219,9 +208,91 @@ async def diag():
 def health():
     return {"status": "ok"}
 
-# =========================================================
-# Página del dashboard (HTML)
-# =========================================================
+# -------- Auth + App mínima --------
+@app.post("/api/register")
+def api_register(payload: UserCreate, db: Session = Depends(get_db)):
+    exists = db.query(User).filter(User.email == payload.email).first()
+    if exists:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Correo ya registrado")
+    user = User(email=payload.email, full_name=payload.full_name, password=hash_password(payload.password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"ok": True, "user": UserOut.model_validate(user).model_dump()}
+
+@app.post("/api/login")
+def api_login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user or not verify_password(payload.password, user.password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
+    token = create_token(user.id, user.email)
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=60*60*12,
+        path="/",
+        # secure=True,  # habilitar solo si sirves por HTTPS
+    )
+    return {"ok": True, "user": UserOut.model_validate(user).model_dump()}
+
+@app.post("/api/logout")
+def api_logout(response: Response):
+    response.delete_cookie("access_token", path="/")
+    return {"ok": True}
+
+@app.get("/api/me")
+def api_me(user: User = Depends(get_current_user)):
+    return UserOut.model_validate(user).model_dump()
+
+# Página de login simple
+@app.get("/login", response_class=HTMLResponse)
+def login_form():
+    return """
+<!DOCTYPE html><html lang="es"><meta charset="utf-8"/>
+<body style="font-family: system-ui; margin:2rem;">
+  <h2>Iniciar sesión</h2>
+  <form id="f" onsubmit="doLogin(event)">
+    <div><label>Correo</label><br><input id="email" type="email" required></div>
+    <div style="margin-top:8px;"><label>Contraseña</label><br><input id="pass" type="password" required></div>
+    <button style="margin-top:12px;">Entrar</button>
+  </form>
+  <div id="msg" style="color:#c00;margin-top:1rem;"></div>
+  <script>
+    async function doLogin(e){
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('pass').value;
+      const r = await fetch('/api/login', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({email, password}),
+        credentials: 'same-origin'
+      });
+      if(r.ok){ location.href = '/app'; }
+      else{
+        const t = await r.json().catch(()=>({detail:'Error'}));
+        document.getElementById('msg').textContent = t.detail || 'Error';
+      }
+    }
+  </script>
+</body></html>
+"""
+
+# Página protegida (ejemplo)
+@app.get("/app", response_class=HTMLResponse)
+def app_home(user: User = Depends(get_current_user)):
+    return f"""
+<!DOCTYPE html><html lang="es"><meta charset="utf-8"/>
+<body style="font-family: system-ui; margin:2rem;">
+  <h2>Hola {user.full_name or user.email}</h2>
+  <p>Bienvenido a la app protegida.</p>
+  <p><a href="/">Volver al dashboard</a></p>
+</body></html>
+"""
+
+# -------- Página principal (dashboard HTML) --------
 @app.get("/", response_class=HTMLResponse)
 def root():
     host = get_host()
@@ -241,6 +312,7 @@ def root():
         "--bad-bg:#ffe6e6;--bad-fg:#8a1f1f;--bad-br:#ffc2c2;}",
         "@media (prefers-color-scheme: dark){:root{--bg:#0b0f14;--fg:#e5e7eb;--muted:#9ca3af;--card:#111827;--border:#1f2937;",
         "--good-bg:#0a2f1e;--good-fg:#a7f3d0;--good-br:#14532d;--bad-bg:#3b0a0a;--bad-fg:#fecaca;--bad-br:#7f1d1d;}img{filter:brightness(0.95) contrast(1.05);}}",
+        "body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,\"Helvetica Neue\",Arial;}",
         ".container{max-width:1150px;margin:0 auto;padding:24px;}",
         ".brand{display:grid;gap:12px;align-items:center;justify-items:center;grid-template-columns:120px 1fr 120px;}",
         ".brand .logo{max-height:80px;width:auto;object-fit:contain;}",
@@ -248,6 +320,11 @@ def root():
         ".titles h1{margin:0;font-size:1.75rem;}",
         ".titles p{margin:4px 0 0;color:var(--muted);}",
         ".card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:24px;}",
+        "table{width:100%;border-collapse:collapse;}",
+        "th,td{border-bottom:1px solid var(--border);padding:10px 8px;text-align:left;}",
+        "thead th{background:transparent;font-weight:600;}",
+        "tbody tr:nth-child(odd){background:rgba(0,0,0,0.02);}",
+        "a{color:inherit;text-decoration:underline;text-underline-offset:2px;}",
         ".pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;vertical-align:middle;}",
         ".up{background:var(--good-bg);color:var(--good-fg);border:1px solid var(--good-br);}",
         ".down{background:var(--bad-bg);color:var(--bad-fg);border:1px solid var(--bad-br);}",
@@ -263,7 +340,7 @@ def root():
         "<div>__LOGO_UAEMEX__</div>",
         "<div class='titles'>",
         "<h1>Principal_2025_ISI</h1>",
-        "<p>WG_HOST: <b>__HOST__</b> · <a href='/app'>App (login)</a></p>",
+        "<p>WG_HOST: <b>__HOST__</b> · <a href='/login'>App (login)</a></p>",
         "</div>",
         "<div>__LOGO_ING__</div>",
         "</header>",
@@ -395,92 +472,3 @@ def root():
     html = html.replace("__LOGO_URL_UAEMEX__", logos.get("uaemex", ""))
     html = html.replace("__LOGO_URL_ING__", logos.get("ing", ""))
     return html
-
-# =========================================================
-# Páginas y API de autenticación (no rompe el dashboard)
-# =========================================================
-@app.get("/app", response_class=HTMLResponse)
-def app_home(request: Request, user: User = Depends(get_current_user)):
-    if templates and os.path.isfile(os.path.join("templates", "app.html")):
-        return templates.TemplateResponse("app.html", {"request": request, "user": user})
-    return HTMLResponse(f"<h1>Hola, {user.full_name or user.email}</h1><p>App protegida OK</p>")
-
-@app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
-    if templates and os.path.isfile(os.path.join("templates", "login.html")):
-        return templates.TemplateResponse("login.html", {"request": request})
-    return HTMLResponse(
-        "<form method='post' action='/auth/login'>"
-        "Email <input type='email' name='email' required><br>"
-        "Password <input type='password' name='password' required><br>"
-        "<button>Entrar</button></form>"
-    )
-
-@app.get("/register", response_class=HTMLResponse)
-def register_page(request: Request):
-    if templates and os.path.isfile(os.path.join("templates", "register.html")):
-        return templates.TemplateResponse("register.html", {"request": request})
-    return HTMLResponse(
-        "<form method='post' action='/auth/register'>"
-        "Email <input type='email' name='email' required><br>"
-        "Nombre <input type='text' name='full_name'><br>"
-        "Password <input type='password' name='password' required><br>"
-        "<button>Crear cuenta</button></form>"
-    )
-
-@app.post("/api/register")
-def api_register(data: UserCreate, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == data.email).first():
-        raise HTTPException(status_code=400, detail="Email ya existe")
-    user = User(email=data.email, full_name=data.full_name, password=hash_password(data.password))
-    db.add(user); db.commit(); db.refresh(user)
-    return UserOut.model_validate(user)
-
-@app.post("/api/login")
-def api_login(data: LoginIn, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == data.email).first()
-    if not user or not verify_password(data.password, user.password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
-    token = create_token(user_id=user.id, email=user.email)
-    resp = JSONResponse({"message": "ok"})
-    resp.set_cookie("access_token", token, httponly=True, samesite="lax", secure=False, max_age=60*60*12)
-    return resp
-
-@app.post("/api/logout")
-def api_logout():
-    resp = JSONResponse({"message": "bye"})
-    resp.delete_cookie("access_token")
-    return resp
-
-@app.get("/api/me")
-def api_me(user: User = Depends(get_current_user)):
-    return UserOut.model_validate(user)
-
-# Formularios HTML (si usas páginas simples)
-@app.post("/auth/register", response_class=HTMLResponse)
-def register_form(
-    request: Request, email: str = Form(...), full_name: str = Form(""),
-    password: str = Form(...), db: Session = Depends(get_db)
-):
-    if db.query(User).filter(User.email == email).first():
-        if templates and os.path.isfile(os.path.join("templates", "register.html")):
-            return templates.TemplateResponse("register.html", {"request": request, "error": "Email ya existe"})
-        return HTMLResponse("<p>Email ya existe</p>", status_code=400)
-    user = User(email=email, full_name=full_name, password=hash_password(password))
-    db.add(user); db.commit()
-    return RedirectResponse(url="/login", status_code=302)
-
-@app.post("/auth/login", response_class=HTMLResponse)
-def login_form(
-    request: Request, email: str = Form(...), password: str = Form(...),
-    db: Session = Depends(get_db)
-):
-    user = db.query(User).filter(User.email == email).first()
-    if not user or not verify_password(password, user.password):
-        if templates and os.path.isfile(os.path.join("templates", "login.html")):
-            return templates.TemplateResponse("login.html", {"request": request, "error": "Credenciales inválidas"})
-        return HTMLResponse("<p>Credenciales inválidas</p>", status_code=401)
-    token = create_token(user_id=user.id, email=user.email)
-    resp = RedirectResponse(url="/app", status_code=302)
-    resp.set_cookie("access_token", token, httponly=True, samesite="lax", secure=False, max_age=60*60*12)
-    return resp
