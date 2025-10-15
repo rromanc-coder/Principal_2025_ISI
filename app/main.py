@@ -149,7 +149,7 @@ def root():
         "<table id='tbl'>",
         "<thead><tr>",
         "<th>Equipo</th>",
-        "<th>Materia</th>",
+        "<th>Asignatura</th>",
         "<th>Repo</th>",
         "<th>URL</th>",
         "<th>Estado</th>",
