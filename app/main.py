@@ -4,6 +4,14 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 import httpx
 
+from collections import deque, defaultdict
+import time
+
+# Mantener 60 muestras (~5 min si refrescas cada 5s; cambia el tamaño según prefieras)
+HISTORY_WINDOW = 60
+_history = defaultdict(lambda: deque(maxlen=HISTORY_WINDOW))  # name -> deque[{"ts":..., "up":0/1, "lat":ms, "err":str|None}]
+_last_error = {}  # name -> str
+
 app = FastAPI(title="principal-isi", version="1.3.0")
 
 # -------- helpers --------
@@ -75,6 +83,29 @@ async def check_all() -> List[Dict[str, Any]]:
     async with httpx.AsyncClient() as client:
         results = await asyncio.gather(*[_check_one(client, t) for t in teams])
     return results
+def update_history(results: List[Dict[str, Any]]) -> None:
+    now = time.time()
+    for r in results:
+        name = r.get("name") or "unknown"
+        up = 1 if r.get("status") == "up" else 0
+        lat = r.get("latency_ms")
+        err = r.get("error")
+        _history[name].append({"ts": now, "up": up, "lat": lat, "err": err})
+        if err:
+            _last_error[name] = err
+
+def uptime_pct(name: str) -> float:
+    buf = _history.get(name)
+    if not buf:
+        return 0.0
+    total = len(buf)
+    if total == 0:
+        return 0.0
+    ups = sum(x["up"] for x in buf)
+    return round(100.0 * ups / total, 1)
+
+def last_error(name: str) -> str:
+    return _last_error.get(name, "")
 
 # -------- API --------
 @app.get("/teams")
@@ -84,13 +115,57 @@ def teams():
 @app.get("/status")
 async def status():
     res = await check_all()
-    return JSONResponse({"host": get_host(), "results": res})
-
+    # actualizar histórico
+    update_history(res)
+    # enriquecer respuesta con uptime/error
+    for r in res:
+        n = r.get("name") or ""
+        r["uptime_pct"] = uptime_pct(n)
+        le = last_error(n)
+        if le and not r.get("error"):
+            r["error"] = le
+    return JSONResponse({"host": get_host(), "results": res, "ts": int(time.time())})
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 # -------- Página --------
+@app.get("/metrics", response_class=HTMLResponse)
+def metrics():
+    lines = []
+    # Help/Type
+    lines.append('# HELP service_up 1 si el servicio está UP, 0 si DOWN')
+    lines.append('# TYPE service_up gauge')
+    lines.append('# HELP service_latency_ms Latencia de /health en ms (última lectura)')
+    lines.append('# TYPE service_latency_ms gauge')
+    lines.append('# HELP service_uptime_pct Uptime en % dentro de la ventana local')
+    lines.append('# TYPE service_uptime_pct gauge')
+
+    # Últimos resultados (si no hay, intenta inferir con history)
+    teams = load_teams()
+    names = [t.get("name") for t in teams if t.get("name")]
+    for name in names:
+        buf = _history.get(name, [])
+        if buf:
+            last = buf[-1]
+            up = last["up"]
+            lat = last["lat"] if last["lat"] is not None else float("nan")
+        else:
+            up, lat = 0, float("nan")
+        upct = uptime_pct(name)
+        labels = f'service="{name}"'
+        lines.append(f'service_up{{{labels}}} {up}')
+        lines.append(f'service_latency_ms{{{labels}}} {lat}')
+        lines.append(f'service_uptime_pct{{{labels}}} {upct}')
+    return "\n".join(lines) + "\n"
+    
+@app.get("/history")
+def history():
+    out = {}
+    for name, buf in _history.items():
+        out[name] = list(buf)  # pequeño, solo últimas N
+    return out
+    
 @app.get("/", response_class=HTMLResponse)
 def root():
     host = get_host()
@@ -154,6 +229,8 @@ def root():
         "<th>URL</th>",
         "<th>Estado</th>",
         "<th>Latencia</th>",
+        "<th>Uptime (ventana)</th>",
+        "<th>Último error</th>",
         "</tr></thead>",
         "<tbody id='tbody'><tr><td colspan='6' class='muted'>Cargando...</td></tr></tbody>",
         "</table>",
