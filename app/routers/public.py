@@ -1,8 +1,7 @@
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, JSONResponse
+import httpx
 from typing import Dict, Any
-import json, httpx
-
 from config import settings
 from services import monitor, state
 
