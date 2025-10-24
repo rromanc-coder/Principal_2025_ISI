@@ -1,4 +1,3 @@
-# app/routers/pages.py
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 from auth import get_current_user
@@ -6,7 +5,6 @@ from models import User
 from config import settings
 
 router = APIRouter()
-
 
 @router.get("/login", response_class=HTMLResponse)
 def login_form():
@@ -41,10 +39,8 @@ def login_form():
 </body></html>
 """
 
-
 @router.get("/app", response_class=HTMLResponse)
 def app_home(user: User = Depends(get_current_user)):
-    # NOTA: no usamos f-strings para evitar problemas con llaves en HTML
     html = """
 <!DOCTYPE html><html lang="es"><meta charset="utf-8"/>
 <body style="font-family: system-ui; margin:2rem;">
@@ -57,14 +53,12 @@ def app_home(user: User = Depends(get_current_user)):
     html = html.replace("__USER__", display_name)
     return HTMLResponse(html)
 
-
 @router.get("/", response_class=HTMLResponse)
 def root():
     host = settings.WG_HOST
     uaemex = settings.LOGO_UAEMEX_URL.strip()
     ing = settings.LOGO_ING_URL.strip()
 
-    # Importante: string normal (no f-string) para no tener que escapar llaves de CSS/JS
     html = """<!DOCTYPE html>
 <html lang='es'>
 <head>
