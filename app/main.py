@@ -1,12 +1,10 @@
-from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-
 from config import settings
 from middleware import activity_middleware
 from db import Base, engine
 
-from routers import public, auth, pages
+from routers import public, auth as auth_router, pages
 
 app = FastAPI(title=settings.APP_TITLE, version=settings.APP_VERSION)
 
@@ -19,7 +17,7 @@ else:
 # Middleware
 activity_middleware(app)
 
-# Crear tablas al iniciar (no falla la app si no hay DB)
+# Crear tablas al iniciar (no tumba la app si falla)
 @app.on_event("startup")
 def _create_tables():
     try:
@@ -29,5 +27,5 @@ def _create_tables():
 
 # Routers
 app.include_router(public.router)
-app.include_router(auth.router)
+app.include_router(auth_router.router)
 app.include_router(pages.router)
