@@ -1,11 +1,9 @@
-import os, json, time, math, asyncio
-from typing import List, Dict, Any, Tuple
-from pathlib import Path
+import json, time, math, asyncio
+from typing import List, Dict, Any
 import httpx
 
 from . import state
 
-# ---------- helpers de settings/entorno ----------
 def load_teams(raw: str) -> List[Dict[str, Any]]:
     try:
         data = json.loads(raw or "[]")
@@ -35,7 +33,6 @@ def uptime_pct(name: str) -> float:
 def last_err(name: str) -> str:
     return state.last_error.get(name, "")
 
-# ---------- checks ----------
 async def _check_one(client: httpx.AsyncClient, team: Dict[str, Any], wg_host: str) -> Dict[str, Any]:
     name = team.get("name")
     port = int(team.get("port", 0))
