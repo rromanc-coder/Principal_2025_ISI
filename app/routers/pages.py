@@ -15,110 +15,10 @@ def login_form():
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Iniciar sesión — Principal ISI</title>
-  <style>
-    :root{
-      --bg1:#0b1220; --bg2:#101827; --card-bg:rgba(17,24,39,.6); --card-br:rgba(255,255,255,.08);
-      --fg:#e5e7eb; --muted:#9ca3af; --accent:#22d3ee; --accent-2:#8b5cf6; --error:#f87171;
-      --focus:0 0 0 4px rgba(34,211,238,.35),0 0 0 1px rgba(34,211,238,.8);
-    }
-    @media (prefers-color-scheme: light){
-      :root{
-        --bg1:#e6f0ff; --bg2:#f8fbff; --card-bg:rgba(255,255,255,.75); --card-br:rgba(17,24,39,.08);
-        --fg:#0b1220; --muted:#475569; --accent:#0891b2; --accent-2:#7c3aed; --error:#dc2626;
-        --focus:0 0 0 4px rgba(8,145,178,.25),0 0 0 1px rgba(8,145,178,.6);
-      }
-    }
-
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0; color:var(--fg); font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial;
-      background: radial-gradient(1200px 800px at 10% -10%, rgba(34,211,238,.18), transparent 60%),
-                  radial-gradient(1000px 700px at 110% 20%, rgba(139,92,246,.12), transparent 60%),
-                  linear-gradient(160deg, var(--bg1), var(--bg2));
-      display:grid; place-items:center; padding:24px;
-    }
-
-    .card{
-      width:100%; max-width:420px; padding:28px 24px 24px;
-      background:var(--card-bg); border:1px solid var(--card-br);
-      border-radius:16px; backdrop-filter: blur(12px);
-      box-shadow: 0 10px 30px rgba(0,0,0,.25);
-      position:relative; overflow:hidden;
-    }
-    .card::before{
-      content:""; position:absolute; inset:-2px;
-      background: conic-gradient(from 180deg at 50% 50%, var(--accent), var(--accent-2), var(--accent));
-      filter: blur(22px); opacity:.12; z-index:0;
-    }
-    .inner{ position:relative; z-index:1; }
-
-    .brand{
-      display:flex; align-items:center; gap:12px; margin-bottom:18px;
-    }
-    .brand .logo{
-      width:42px; height:42px; border-radius:10px;
-      background:linear-gradient(135deg, rgba(34,211,238,.35), rgba(139,92,246,.35));
-      display:grid; place-items:center; font-weight:700; color:var(--fg);
-      border:1px solid var(--card-br);
-    }
-    .brand h1{ margin:0; font-size:1.1rem; letter-spacing:.2px; }
-    .brand p{ margin:0; font-size:.9rem; color:var(--muted); }
-
-    label{ display:block; font-size:.9rem; margin:12px 0 6px; color:var(--muted); }
-    .control{
-      display:flex; align-items:center; gap:8px;
-      background:rgba(0,0,0,.15); border:1px solid var(--card-br);
-      border-radius:12px; padding:10px 12px;
-    }
-    input[type="email"], input[type="password"]{
-      outline:none; border:none; background:transparent; color:var(--fg);
-      width:100%; font-size:1rem;
-    }
-    input::placeholder{ color:rgba(148,163,184,.7); }
-
-    .row{
-      display:flex; align-items:center; justify-content:space-between; margin-top:10px;
-      gap:12px; flex-wrap:wrap;
-    }
-    .muted{ color:var(--muted); font-size:.9rem; }
-
-    .btn{
-      width:100%; margin-top:16px; padding:12px 14px; font-weight:600; letter-spacing:.2px;
-      color:#0b1220; background:linear-gradient(135deg, var(--accent), var(--accent-2));
-      border:none; border-radius:12px; cursor:pointer;
-      box-shadow: 0 8px 18px rgba(34,211,238,.2), 0 8px 18px rgba(139,92,246,.15);
-      transition: transform .06s ease;
-    }
-    .btn:hover{ transform: translateY(-1px); }
-    .btn:active{ transform: translateY(0); }
-    .btn[disabled]{ opacity:.6; cursor:not-allowed; }
-
-    .checkbox{ display:flex; align-items:center; gap:8px; }
-    .checkbox input{ width:16px; height:16px; }
-
-    .error{ margin-top:10px; color:var(--error); font-weight:600; min-height:1.25rem; }
-    .hint{ font-size:.85rem; color:var(--muted); margin-top:10px; }
-
-    .link{ color:var(--accent); text-decoration:none; }
-    .link:hover{ text-decoration:underline; text-underline-offset:2px; }
-
-    .right{
-      display:flex; align-items:center; gap:8px; font-size:.9rem;
-    }
-    .toggle{
-      background:transparent; border:none; color:var(--muted); cursor:pointer; padding:4px 6px;
-    }
-
-    .kbd{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      font-size:.85rem; padding:2px 6px; border-radius:6px; border:1px solid var(--card-br);
-      background:rgba(0,0,0,.15); color:var(--fg);
-    }
-  </style>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-  <main class="card" role="main">
+<body class="bg-tech">
+  <main class="login-card" role="main">
     <div class="inner">
       <div class="brand" aria-label="Identidad de la aplicación">
         <div class="logo">IS</div>
@@ -211,7 +111,6 @@ def login_form():
       return false;
     }
 
-    // Accesibilidad: submit con Enter sin hacer click
     document.getElementById('loginForm').addEventListener('keyup', (e)=>{
       if(e.key === 'Enter'){ doLogin(e); }
     });
@@ -220,15 +119,17 @@ def login_form():
 </html>
 """
 
-
 @router.get("/app", response_class=HTMLResponse)
 def app_home(user: User = Depends(get_current_user)):
     html = """
 <!DOCTYPE html><html lang="es"><meta charset="utf-8"/>
-<body style="font-family: system-ui; margin:2rem;">
-  <h2>Hola __USER__</h2>
-  <p>Bienvenido a la app protegida.</p>
-  <p><a href="/">Volver al dashboard</a></p>
+<head><link rel="stylesheet" href="/static/style.css"></head>
+<body class="page">
+  <div class="container" style="padding:2rem;">
+    <h2>Hola __USER__</h2>
+    <p>Bienvenido a la app protegida.</p>
+    <p><a href="/">Volver al dashboard</a></p>
+  </div>
 </body></html>
 """
     display_name = (user.full_name or user.email or "").strip()
@@ -248,35 +149,8 @@ def root():
 <meta name='viewport' content='width=device-width, initial-scale=1'/>
 <title>Principal ISI - Dashboard</title>
 <link rel='stylesheet' href='/static/style.css'>
-<style>
-:root{--bg:#ffffff;--fg:#111827;--muted:#6b7280;--card:#f9fafb;--border:#e5e7eb;
---good-bg:#e6ffed;--good-fg:#046c4e;--good-br:#b7f5c8;
---bad-bg:#ffe6e6;--bad-fg:#8a1f1f;--bad-br:#ffc2c2;}
-@media (prefers-color-scheme: dark){:root{--bg:#0b0f14;--fg:#e5e7eb;--muted:#9ca3af;--card:#111827;--border:#1f2937;
---good-bg:#0a2f1e;--good-fg:#a7f3d0;--good-br:#14532d;--bad-bg:#3b0a0a;--bad-fg:#fecaca;--bad-br:#7f1d1d;}img{filter:brightness(0.95) contrast(1.05);}}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,"Helvetica Neue",Arial;}
-.container{max-width:1150px;margin:0 auto;padding:24px;}
-.brand{display:grid;gap:12px;align-items:center;justify-items:center;grid-template-columns:120px 1fr 120px;}
-.brand .logo{max-height:80px;width:auto;object-fit:contain;}
-.titles{text-align:center;}
-.titles h1{margin:0;font-size:1.75rem;}
-.titles p{margin:4px 0 0;color:var(--muted);}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:24px;}
-table{width:100%;border-collapse:collapse;}
-th,td{border-bottom:1px solid var(--border);padding:10px 8px;text-align:left;}
-thead th{background:transparent;font-weight:600;}
-tbody tr:nth-child(odd){background:rgba(0,0,0,0.02);}
-a{color:inherit;text-decoration:underline;text-underline-offset:2px;}
-.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;vertical-align:middle;}
-.up{background:var(--good-bg);color:var(--good-fg);border:1px solid var(--good-br);}
-.down{background:var(--bad-bg);color:var(--bad-fg);border:1px solid var(--bad-br);}
-.muted{color:var(--muted);font-size:0.9rem;}
-.grid{display:grid;gap:16px;grid-template-columns:1fr;}
-@media (min-width:900px){.grid{grid-template-columns:1fr;}}
-button{cursor:pointer;}
-</style>
 </head>
-<body>
+<body class="page">
 <div class='container'>
 <header class='brand'>
 <div><img class="logo" src="__UAEMEX__" alt="Escudo UAEMex" /></div>
@@ -292,15 +166,14 @@ button{cursor:pointer;}
 <h2 style='margin:0 0 12px 0;'>Servicios (estado en vivo)</h2>
 <div class='muted' style='margin-bottom:8px;'>Se actualiza cada 5s</div>
 
-<div style='display:flex;gap:12px;align-items:center;margin:8px 0;'>
-  <input id='q' placeholder='Buscar por equipo/asignatura/repositorio'
-         style='padding:8px;border:1px solid var(--border);border-radius:8px;flex:1;max-width:360px;'>
-  <button id='sortLat' style='padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);'>Ordenar por Latencia</button>
-  <button id='sortUp'  style='padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);'>Ordenar por Uptime</button>
+<div class='toolbar'>
+  <input id='q' placeholder='Buscar por equipo/asignatura/repositorio' class='input'/>
+  <button id='sortLat' class='btn-secondary'>Ordenar por Latencia</button>
+  <button id='sortUp'  class='btn-secondary'>Ordenar por Uptime</button>
   <span id='lastTs' class='muted'></span>
 </div>
 
-<div style='overflow-x:auto;'>
+<div class='table-wrap'>
 <table id='tbl'>
 <thead><tr>
 <th>Equipo</th>
