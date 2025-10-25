@@ -5,8 +5,6 @@ FROM node:20 AS fe-build
 WORKDIR /app
 COPY . .
 
-# Si hay frontend, instala deps (según lockfile disponible) y compila.
-# Si NO hay frontend, crea un placeholder para que / sirva algo.
 RUN if [ -f frontend/package.json ]; then \
       echo "==> Detectado frontend/"; \
       cd frontend; \
@@ -20,7 +18,7 @@ RUN if [ -f frontend/package.json ]; then \
         echo "==> Sin lockfile; usando npm install (mejor commitear package-lock.json)"; \
         npm install; \
       fi; \
-      npm run build -- --configuration production; \
+      npm run build -- --configuration production --base-href /ui/; \
     else \
       echo "==> No hay frontend: creando placeholder"; \
       mkdir -p frontend/dist/placeholder && \
@@ -44,9 +42,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Copia el build del FE (real o placeholder) a /app/static.
-# El comodín evita atarte al nombre de carpeta dentro de dist/.
-COPY --from=fe-build /app/frontend/dist/*/ /app/static/
+# Copia el build del FE a /app/static/ui/
+COPY --from=fe-build /app/frontend/dist/*/ /app/static/ui/
 
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host","0.0.0.0","--port","8000"]
